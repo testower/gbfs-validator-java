@@ -104,7 +104,7 @@ public class FileValidator {
     if (validationException.getCausingExceptions().isEmpty()) {
       return List.of(
         new FileValidationError(
-          validationException.getSchemaLocation(),
+          getSchemaLocationOrDefault(validationException),
           validationException.getPointerToViolation(),
           validationException.getMessage(),
           validationException.getKeyword()
@@ -118,6 +118,41 @@ public class FileValidator {
         .flatMap(List::stream)
         .toList();
     }
+  }
+
+  /**
+   * Gets the schema location from the validation exception, or returns a fallback value.
+   *
+   * The everit json-schema library doesn't always populate schemaLocation in ValidationException.
+   * Specifically, CombinedSchema (oneOf, anyOf, allOf) explicitly passes null when creating
+   * exceptions. This method provides fallback logic:
+   * 1. Use exception's schemaLocation if present
+   * 2. Fall back to violated schema's schemaLocation if available
+   * 3. Default to "#" (schema root in JSON Pointer notation)
+   *
+   * @param validationException the validation exception
+   * @return the schema location, never null
+   */
+  private String getSchemaLocationOrDefault(ValidationException validationException) {
+    String schemaLocation = validationException.getSchemaLocation();
+
+    // Try to get location from the violated schema if exception doesn't have it
+    if (schemaLocation == null && validationException.getViolatedSchema() != null) {
+      schemaLocation = validationException.getViolatedSchema().getSchemaLocation();
+    }
+
+    // Log when we can't find any schema location (for debugging)
+    if (schemaLocation == null) {
+      logger.debug(
+        "No schemaLocation available - keyword: {}, message: {}, violationPath: {}",
+        validationException.getKeyword(),
+        validationException.getMessage(),
+        validationException.getPointerToViolation()
+      );
+    }
+
+    // Default to schema root if no location information available
+    return schemaLocation != null ? schemaLocation : "#";
   }
 
   private boolean isRequired(String feedName) {
